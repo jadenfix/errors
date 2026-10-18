@@ -144,3 +144,42 @@ func TestExecuteReply_DifferentTypes(t *testing.T) {
 		t.Errorf("Expected 2 calls, got %d", calls)
 	}
 }
+
+func TestExecuteContextNilPreservesConfiguredContext(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	attempts := 0
+	r := NewRetry(WithContext(ctx))
+	err := r.ExecuteContext(nil, func() error { attempts++; return nil })
+	if err != context.Canceled {
+		t.Fatalf("ExecuteContext returned %v, want context.Canceled", err)
+	}
+	if attempts != 0 {
+		t.Fatalf("called operation %d times with canceled context", attempts)
+	}
+}
+
+func TestExecuteContextNilCancellationDuringRetry(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	attempts := 0
+	r := NewRetry(WithContext(ctx), WithMaxAttempts(2), WithJitter(false), WithRetryIf(func(error) bool { return true }), WithOnRetry(func(int, error) { cancel() }))
+	err := r.ExecuteContext(nil, func() error { attempts++; return context.DeadlineExceeded })
+	if err != context.Canceled {
+		t.Fatalf("ExecuteContext returned %v, want context.Canceled", err)
+	}
+	if attempts != 1 {
+		t.Fatalf("called operation %d times, want 1", attempts)
+	}
+}
+
+func TestExecuteContextNilWithDefaultContext(t *testing.T) {
+	called := false
+	err := NewRetry().ExecuteContext(nil, func() error { called = true; return nil })
+	if err != nil {
+		t.Fatalf("ExecuteContext returned %v", err)
+	}
+	if !called {
+		t.Fatal("operation was not called")
+	}
+}
